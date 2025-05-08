@@ -113,6 +113,7 @@
             --resizer-hover-color: var(--primary-color);
             /* Add Primary RGB for potential use */
             --primary-color-rgb: 229, 115, 115;
+            --video-card-background: #18181b;
         }
 
 
@@ -245,7 +246,7 @@
             padding: 15px; /* Adjusted padding */
             /* border-top: 1px solid var(--border-color-light); */ /* Removed original border-top */
             flex-shrink: 0;
-            background-color: #131316;
+            background-color: var(--background-color);
             transition: var(--transition-default);
             transition-property: background-color, border-color, padding, margin; /* Added transition properties */
             border: 1px solid var(--border-color-light); /* Added border */
@@ -828,12 +829,15 @@
         }
 
         .video-card {
-            background-color: var(--surface-color);
-            border-radius: var(--border-radius-md);
+            background-color: var(--video-card-background);
+            border-radius: var(
+            --border-radius-md);
             overflow: hidden;
-            box-shadow: var(--shadow-xs);
+            box-shadow: var(
+            --shadow-xs);
             cursor: pointer;
-            transition: var(--transition-default);
+            transition: var(
+            --transition-default);
             transition-property: transform, box-shadow, background-color, border-color;
             display: flex;
             flex-direction: column;
