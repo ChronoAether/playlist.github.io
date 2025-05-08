@@ -63,7 +63,7 @@ const ICONS = {
     sun: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/></svg>`,
     success: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg>`,
     error: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646z"/></svg>`,
-    info: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>`
+    info: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>`,
 };
 
 // --- Initialization ---
@@ -163,13 +163,17 @@ function setupEventListeners() {
         if (!playlistItem) return;
         const playlistId = parseInt(playlistItem.dataset.id);
 
-        if (event.target.closest('.rename-btn')) {
+        // Check if the click target is NOT the drag handle or control buttons
+        const isControlClick = event.target.closest('.rename-btn') || event.target.closest('.delete-btn') || event.target.closest('.playlist-drag-handle');
+
+        if (!isControlClick) {
+             selectPlaylist(playlistId); // Select playlist only if not clicking controls
+        } else if (event.target.closest('.rename-btn')) {
             event.stopPropagation(); handleRenamePlaylist(playlistId);
         } else if (event.target.closest('.delete-btn')) {
             event.stopPropagation(); handleDeletePlaylist(playlistId);
-        } else {
-            selectPlaylist(playlistId);
         }
+        // Drag handle click is handled by dragstart, no click logic needed here
     });
 
     // Video Actions (Delegation on Grid)
@@ -186,7 +190,8 @@ function setupEventListeners() {
     });
 
     // Drag and Drop Event Listeners
-    setupDragAndDropListeners();
+    setupDragAndDropListeners(); // Video drag and drop
+    setupPlaylistDragAndDropListeners(); // New playlist drag and drop
 
     closePlayerBtn.addEventListener('click', handleClosePlayer); // Add listener for close button
 
@@ -210,13 +215,23 @@ function setupEventListeners() {
     });
 
     // --- Touch Event Listeners for Drag/Drop ---
+    // Touch events only added to videoGridEl, not playlistListEl
     videoGridEl.addEventListener('touchstart', handleTouchStart, { passive: false }); // Need passive: false for preventDefault
     videoGridEl.addEventListener('touchmove', handleTouchMove, { passive: false }); // Need passive: false for preventDefault
     videoGridEl.addEventListener('touchend', handleTouchEnd);
     videoGridEl.addEventListener('touchcancel', handleTouchEnd); // Treat cancel same as end
+
+    // Listen for window resize to potentially update draggable attribute on playlists
+    window.addEventListener('resize', debounce(handleWindowResize, 100));
 }
 
-// --- Drag and Drop ---
+// New function to handle window resize for playlist drag
+function handleWindowResize() {
+    // Re-render playlists to apply or remove the 'draggable' attribute based on new window size
+    renderPlaylists();
+}
+
+// --- Drag and Drop (Videos) ---
 function setupDragAndDropListeners() {
     videoGridEl.addEventListener('dragstart', handleDragStart);
     videoGridEl.addEventListener('dragend', handleDragEnd);
@@ -283,7 +298,7 @@ function handleDrop(event) {
     const targetCard = event.target.closest('.video-card');
     const dropTargetId = targetCard ? targetCard.dataset.videoId : null;
 
-    if (draggedVideoId && dropTargetId !== draggedVideoId) {
+    if (draggedVideoId && dropTargetId && dropTargetId !== draggedVideoId) {
         handleReorderVideo(draggedVideoId, dropTargetId);
     }
     draggedVideoId = null;
@@ -294,6 +309,146 @@ function clearDragOverStyles() {
     videoGridEl.querySelectorAll('.video-card.drag-over').forEach(card => {
         card.classList.remove('drag-over');
     });
+}
+
+// --- Drag and Drop (Playlists) ---
+let draggedPlaylistId = null; // ID of the playlist being dragged
+let playlistDragTargetElement = null; // Element we are dragging over in the playlist list
+
+function setupPlaylistDragAndDropListeners() {
+    playlistListEl.addEventListener('dragstart', handlePlaylistDragStart);
+    playlistListEl.addEventListener('dragend', handlePlaylistDragEnd);
+    playlistListEl.addEventListener('dragover', handlePlaylistDragOver);
+    playlistListEl.addEventListener('dragleave', handlePlaylistDragLeave);
+    playlistListEl.addEventListener('drop', handlePlaylistDrop);
+}
+
+function handlePlaylistDragStart(event) {
+    const playlistItem = event.target.closest('.playlist-item');
+    // Only start drag if the element is marked as draggable
+    if (playlistItem && playlistItem.draggable) {
+        draggedPlaylistId = parseInt(playlistItem.dataset.id);
+        event.dataTransfer.effectAllowed = 'move';
+        // Set dataTransfer data, though not strictly needed for reorder within same list
+        event.dataTransfer.setData('text/plain', draggedPlaylistId);
+        setTimeout(() => playlistItem.classList.add('dragging'), 0); // Add class after a tick
+    } else {
+        // Prevent drag if the item is not draggable (i.e., on mobile)
+        event.preventDefault();
+    }
+}
+
+function handlePlaylistDragEnd(event) {
+    const draggingElement = playlistListEl.querySelector('.playlist-item.dragging');
+    if (draggingElement) {
+        draggingElement.classList.remove('dragging');
+    }
+    clearPlaylistDragOverStyles();
+    draggedPlaylistId = null;
+    playlistDragTargetElement = null;
+}
+
+function handlePlaylistDragOver(event) {
+    event.preventDefault(); // Necessary to allow drop
+    if (draggedPlaylistId === null) return; // Only react if dragging a playlist
+
+    const targetItem = event.target.closest('.playlist-item');
+
+    if (targetItem && parseInt(targetItem.dataset.id) !== draggedPlaylistId) {
+        // Determine if dropping before or after the target item
+        // This is a simple approach: drop before if hovering in the top half, after if bottom half.
+        const targetRect = targetItem.getBoundingClientRect();
+        const offset = event.clientY - targetRect.top;
+        const isDroppingBefore = offset < targetRect.height / 2;
+
+        // Only add drag-over style if it's a new target or different drop position
+        // We'll use different classes or logic for 'before'/'after' if needed for complex visuals,
+        // but for simple outline, checking the target item is enough.
+         if (playlistDragTargetElement !== targetItem) {
+             clearPlaylistDragOverStyles(); // Clear previous styles
+             targetItem.classList.add('drag-over');
+             playlistDragTargetElement = targetItem;
+         }
+         // Could add isDroppingBefore class here for visual indicator
+
+        event.dataTransfer.dropEffect = 'move';
+    } else {
+        // If hovering over empty space or the dragged item itself, clear styles
+        if (playlistDragTargetElement) {
+            clearPlaylistDragOverStyles();
+            playlistDragTargetElement = null;
+        }
+        event.dataTransfer.dropEffect = 'none'; // Indicate not droppable here
+    }
+}
+
+function handlePlaylistDragLeave(event) {
+    // Check if the mouse truly left the potential drop target playlist item
+    const targetItem = event.target.closest('.playlist-item');
+    if (targetItem && targetItem === playlistDragTargetElement && !targetItem.contains(event.relatedTarget)) {
+        clearPlaylistDragOverStyles();
+        playlistDragTargetElement = null;
+    }
+}
+
+function handlePlaylistDrop(event) {
+    event.preventDefault();
+    clearPlaylistDragOverStyles();
+    const targetItem = event.target.closest('.playlist-item');
+    const dropTargetId = targetItem ? parseInt(targetItem.dataset.id) : null;
+
+    if (draggedPlaylistId !== null && dropTargetId !== draggedPlaylistId) {
+        // Determine the correct index to insert based on where the drag-over was applied
+        const targetRect = targetItem ? targetItem.getBoundingClientRect() : null;
+        let insertBeforeTarget = true; // Default to inserting before
+
+        if (targetRect) {
+            const offset = event.clientY - targetRect.top;
+            insertBeforeTarget = offset < targetRect.height / 2;
+        }
+         // Note: If dropped into empty space, dropTargetId will be null.
+         // handleReorderPlaylist should handle this (e.g., append to end).
+
+        handleReorderPlaylist(draggedPlaylistId, dropTargetId, insertBeforeTarget);
+    }
+
+    draggedPlaylistId = null;
+    playlistDragTargetElement = null;
+}
+
+function clearPlaylistDragOverStyles() {
+     playlistListEl.querySelectorAll('.playlist-item.drag-over').forEach(item => {
+         item.classList.remove('drag-over');
+     });
+     // Remove any 'drag-over-before'/'drag-over-after' classes if implemented
+}
+
+// New function to reorder playlists
+function handleReorderPlaylist(playlistIdToMove, targetPlaylistId, insertBeforeTarget = true) {
+    const playlistToMoveIndex = playlists.findIndex(p => p.id === playlistIdToMove);
+    if (playlistToMoveIndex === -1) return;
+
+    const [playlistToMove] = playlists.splice(playlistToMoveIndex, 1); // Remove the playlist
+
+    if (targetPlaylistId === null) {
+        // Dropped at the end or empty list
+        playlists.push(playlistToMove);
+    } else {
+        const targetIndex = playlists.findIndex(p => p.id === targetPlaylistId);
+        if (targetIndex !== -1) {
+            // Calculate insert index based on insertBeforeTarget flag
+            const insertIndex = insertBeforeTarget ? targetIndex : targetIndex + 1;
+            playlists.splice(insertIndex, 0, playlistToMove);
+        } else {
+            // Target not found (should not happen), append to end as fallback
+            playlists.push(playlistToMove);
+        }
+    }
+
+    savePlaylists();
+    renderPlaylists(); // Re-render the sidebar list with the new order
+    // Optional: show toast
+    // showToast(`Playlist "${escapeHTML(playlistToMove.name)}" reordered.`, 'info');
 }
 
 // --- Theme Management ---
@@ -852,6 +1007,7 @@ function extractVideoId(url) {
 }
 
 // --- Rendering ---
+// ... existing code ...
 function renderPlaylists() {
     const searchTerm = playlistSearchInput.value.toLowerCase();
     const filteredPlaylists = playlists.filter(p => p.name.toLowerCase().includes(searchTerm));
@@ -864,10 +1020,18 @@ function renderPlaylists() {
         noPlaylistsMessageEl.classList.add('hidden');
         playlistListEl.innerHTML = ''; // Clear existing content first
         const fragment = document.createDocumentFragment(); // Create a fragment
+
+        // Determine if drag is enabled based on screen width
+        const isDesktop = window.innerWidth >= 768; // Use the same breakpoint as in CSS
+
         filteredPlaylists.forEach(playlist => {
             const li = document.createElement('li');
             li.className = `playlist-item ${playlist.id === currentPlaylistId ? 'active' : ''}`;
             li.dataset.id = playlist.id;
+            // Only add draggable attribute on desktop
+            if (isDesktop) {
+                li.draggable = true;
+            }
             li.innerHTML = `
                         <span class="playlist-name">${escapeHTML(playlist.name)}</span>
                         <span class="playlist-count">${playlist.videos.length}</span>
@@ -887,6 +1051,7 @@ function renderPlaylists() {
         playlistListEl.appendChild(fragment); // Append the fragment to the DOM once
     }
 }
+// ... existing code ...
 
 function renderVideos() {
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
@@ -923,7 +1088,7 @@ function renderVideos() {
         const div = document.createElement('div');
         div.className = 'video-card';
         div.dataset.videoId = video.id;
-        div.draggable = true;
+        div.draggable = true; // Video drag is always enabled currently
         div.innerHTML = `
                     <div class="video-card" data-video-id="${video.id}" draggable="true">
                         <div class="thumbnail-wrapper">

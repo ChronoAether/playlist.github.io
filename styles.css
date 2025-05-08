@@ -469,11 +469,6 @@
             border-color: rgba(var(--primary-color-rgb), 0.3);
         }
 
-        /* Playlist Drag & Drop Styles */
-        .playlist-item[draggable="true"] {
-            cursor: grab;
-        }
-
         .playlist-item.dragging {
             opacity: 0.4;
             cursor: grabbing;
@@ -495,7 +490,7 @@
             text-overflow: ellipsis;
             margin-right: 8px;
             flex-grow: 1;
-            pointer-events: none;
+            /* pointer-events: none; */ /* Removed to allow clicking name to select */
         }
 
         .playlist-count {
@@ -522,6 +517,7 @@
             transition: opacity var(--transition-speed) var(--transition-timing);
             flex-shrink: 0;
             margin-left: 8px;
+            align-items: center; /* Align controls vertically */
         }
 
         .playlist-item:hover .controls,
@@ -531,7 +527,8 @@
             opacity: 1;
         }
 
-        .playlist-item .controls button {
+        .playlist-item .controls button,
+        .playlist-item .controls .playlist-drag-handle { /* Include drag handle */
             /* Make control buttons smaller */
             padding: 4px;
             font-size: 0.9rem;
@@ -542,19 +539,31 @@
             box-shadow: none;
         }
 
-        .playlist-item .controls button:hover {
+        .playlist-item .controls button:hover,
+        .playlist-item .controls .playlist-drag-handle:hover { /* Include drag handle */
             background-color: var(--surface-color-alt);
             color: var(--text-color);
         }
 
-        html[data-theme="dark"] .playlist-item .controls button:hover {
+        html[data-theme="dark"] .playlist-item .controls button:hover,
+        html[data-theme="dark"] .playlist-item .controls .playlist-drag-handle:hover {
             background-color: var(--background-color);
         }
 
-        .playlist-item .controls button svg {
+        .playlist-item .controls button svg,
+        .playlist-item .controls .playlist-drag-handle svg { /* Include drag handle */
             width: 0.9em;
             height: 0.9em;
         }
+
+        .playlist-drag-handle {
+            cursor: grab; /* Use grab cursor for the handle */
+        }
+        .playlist-drag-handle:active {
+            cursor: grabbing; /* Use grabbing cursor while dragging */
+            color: var(--text-color); /* Change color while active */
+        }
+
 
         /* --- Main Content --- */
         .main-content {
@@ -1312,6 +1321,12 @@
                 /* Make controls always visible on touch for easier access */
                 opacity: 1;
             }
+
+            /* Hide playlist drag handle on mobile */
+            .playlist-drag-handle {
+                display: none;
+            }
+
 
             .video-controls .drag-handle {
 
