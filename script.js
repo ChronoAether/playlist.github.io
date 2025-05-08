@@ -30,6 +30,7 @@ const paginationControlsEl = document.getElementById('paginationControls');
 const prevPageBtn = document.getElementById('prevPageBtn');
 const nextPageBtn = document.getElementById('nextPageBtn');
 const pageInfoEl = document.getElementById('pageInfo');
+const audioOnlyToggle = document.getElementById('audioOnlyToggle'); // Add with other DOM elements
 
 // --- State ---
 let playlists = [];
@@ -51,6 +52,7 @@ let touchDraggedElement = null;
 // Pagination State
 const videosPerPage = 20; // Number of videos to show per page
 let currentPage = 1;
+let isAudioOnlyMode = false; // Add this with other state variables
 
 // --- Icons (Replace with actual SVG content or library calls) ---
 const ICONS = {
@@ -71,6 +73,7 @@ function init() {
     loadTheme();
     loadPlaylists();
     loadAutoplaySetting();
+    loadAudioOnlySetting(); // Add this
     loadSidebarWidth();
     renderPlaylists();
 
@@ -153,6 +156,8 @@ function setupEventListeners() {
     importBtn.addEventListener('click', () => importFileEl.click());
     importFileEl.addEventListener('change', handleImportPlaylists);
     exportBtn.addEventListener('click', handleExportPlaylists);
+    audioOnlyToggle.addEventListener('change', handleAudioOnlyToggle);
+    document.getElementById('audioOnlyControlGroup').querySelector('.switch').addEventListener('click', handleVisualAudioOnlySwitchClick);
 
     // Sidebar resize event
     sidebarResizerEl.addEventListener('mousedown', initSidebarResize);
@@ -521,7 +526,8 @@ function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.PLAYING) {
         currentlyPlayingVideoId = getCurrentPlayingVideoIdFromApi();
         updatePlayingVideoHighlight(currentlyPlayingVideoId);
-
+        updateAudioOnlyDisplay(); // Add this
+        
         // Update Media Session metadata when playback starts
         const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
         if (currentPlaylist) {
@@ -984,6 +990,8 @@ function playVideo(videoId) {
         updateMediaSessionMetadata(null); // Clear if playlist not found
     }
     // --- End Media Session Update ---
+
+    updateAudioOnlyDisplay(); // Add this after setting currentlyPlayingVideoId
 }
 
 function stopVideo() {
@@ -1238,6 +1246,63 @@ function handleVisualSwitchClick(event) {
         // This will toggle its 'checked' state AND trigger the 'change' event listener
         // that we already have attached (handleAutoplayToggle).
         autoplayToggle.click();
+    }
+}
+
+// --- Audio Only Functions ---
+function loadAudioOnlySetting() {
+    isAudioOnlyMode = localStorage.getItem('audioOnlyEnabled') === 'true';
+    audioOnlyToggle.checked = isAudioOnlyMode;
+    applyAudioOnlyClass();
+}
+
+function saveAudioOnlySetting() {
+    localStorage.setItem('audioOnlyEnabled', isAudioOnlyMode);
+}
+
+function handleAudioOnlyToggle() {
+    isAudioOnlyMode = audioOnlyToggle.checked;
+    saveAudioOnlySetting();
+    applyAudioOnlyClass();
+    
+    // Update the display if a video is currently playing
+    if (currentlyPlayingVideoId) {
+        updateAudioOnlyDisplay();
+    }
+    
+    showToast(`Audio-only mode ${isAudioOnlyMode ? 'enabled' : 'disabled'}.`, 'info');
+}
+
+function applyAudioOnlyClass() {
+    if (isAudioOnlyMode) {
+        bodyEl.classList.add('audio-only-active');
+    } else {
+        bodyEl.classList.remove('audio-only-active');
+    }
+}
+
+function updateAudioOnlyDisplay() {
+    const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
+    if (!currentPlaylist) return;
+
+    const videoData = currentPlaylist.videos.find(v => v.id === currentlyPlayingVideoId);
+    if (videoData) {
+        const audioOnlyInfo = document.createElement('div');
+        audioOnlyInfo.className = 'audio-only-info';
+        audioOnlyInfo.innerHTML = `
+            <span class="audio-title">${escapeHTML(videoData.title)}</span>
+        `;
+        
+        // Clear existing and add new
+        const existingInfo = playerWrapperEl.querySelector('.audio-only-info');
+        if (existingInfo) existingInfo.remove();
+        playerWrapperEl.appendChild(audioOnlyInfo);
+    }
+}
+
+function handleVisualAudioOnlySwitchClick(event) {
+    if (event.target !== audioOnlyToggle) {
+        audioOnlyToggle.click();
     }
 }
 
