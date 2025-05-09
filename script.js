@@ -1063,7 +1063,6 @@ function renderPlaylists() {
 
 function renderVideos() {
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
-
     if (!currentPlaylist || currentPlaylist.videos.length === 0) {
         videoGridEl.innerHTML = ''; // Clear grid
         paginationControlsEl.classList.add('hidden'); // Hide pagination if no videos
@@ -1076,11 +1075,9 @@ function renderVideos() {
     const totalVideos = currentPlaylist.videos.length;
     const totalPages = Math.ceil(totalVideos / videosPerPage);
 
-    // Ensure currentPage is valid (e.g., after deletion)
+    // Ensure currentPage is valid
     if (currentPage > totalPages && totalPages > 0) {
         currentPage = totalPages;
-    } else if (totalPages === 0) {
-        currentPage = 1; // Should be handled by the empty check above, but safety first
     }
 
     const startIndex = (currentPage - 1) * videosPerPage;
@@ -1088,41 +1085,31 @@ function renderVideos() {
     const videosToRender = currentPlaylist.videos.slice(startIndex, endIndex);
     // --- End Pagination Logic ---
 
-    videoPlaceholderEl.classList.add('hidden'); // Hide placeholder
+    videoPlaceholderEl.classList.add('hidden');
     videoGridEl.innerHTML = ''; // Clear existing grid content
-    const fragment = document.createDocumentFragment(); // Create a fragment
+    const fragment = document.createDocumentFragment();
 
-    videosToRender.forEach(video => { // Iterate over the page's videos only
+    videosToRender.forEach(video => {
         const div = document.createElement('div');
         div.className = 'video-card';
         div.dataset.videoId = video.id;
-        div.draggable = true; // Video drag is always enabled currently
+        div.draggable = true;
         div.innerHTML = `
-                    <div class="video-card" data-video-id="${video.id}" draggable="true">
-                        <div class="thumbnail-wrapper">
-                           <img src="${escapeHTML(video.thumbnail)}" class="thumbnail" alt="" loading="lazy"> <!-- Alt can be empty as title is below -->
-                        </div>
-                        <div class="video-info">
-                             <h4>${escapeHTML(video.title)}</h4>
-                             <div class="video-controls">
-                                 <span class="drag-handle" title="Drag to reorder">
-                                    ${ICONS.drag}
-                                    <span class="visually-hidden">Drag to reorder ${escapeHTML(video.title)}</span>
-                                 </span>
-                                 <button class="icon-button delete-video-btn" title="Remove from playlist">
-                                    ${ICONS.delete}
-                                    <span class="visually-hidden">Remove ${escapeHTML(video.title)} from playlist</span>
-                                 </button>
-                             </div>
-                        </div>
-                    </div>
-                `;
-        fragment.appendChild(div.firstElementChild); // Append the actual card element from the innerHTML
+            <div class="thumbnail-wrapper">
+                <img src="${escapeHTML(video.thumbnail)}" class="thumbnail" alt="" loading="lazy">
+            </div>
+            <div class="video-info">
+                <h4>${escapeHTML(video.title)}</h4>
+                <div class="video-controls">
+                    <span class="drag-handle" title="Drag to reorder">${ICONS.drag}</span>
+                    <button class="icon-button delete-video-btn" title="Remove from playlist">${ICONS.delete}</button>
+                </div>
+            </div>
+        `;
+        fragment.appendChild(div);
     });
 
-    videoGridEl.appendChild(fragment); // Append the fragment to the DOM once
-
-    // Render pagination controls after rendering videos
+    videoGridEl.appendChild(fragment);
     renderPaginationControls(totalVideos, totalPages);
 }
 
