@@ -1,4 +1,4 @@
-// DOM Elements
+// DOM Elements - Cache frequently used elements
 const playlistNameInput = document.getElementById('playlistName');
 const createPlaylistBtn = document.getElementById('createPlaylistBtn');
 const playlistListEl = document.getElementById('playlistList');
@@ -31,28 +31,29 @@ const prevPageBtn = document.getElementById('prevPageBtn');
 const nextPageBtn = document.getElementById('nextPageBtn');
 const pageInfoEl = document.getElementById('pageInfo');
 const audioOnlyToggle = document.getElementById('audioOnlyToggle');
+const audioOnlySwitchDiv = document.getElementById('audioOnlyControlGroup').querySelector('.switch');
 
-// --- State ---
+// State
 let playlists = [];
 let currentPlaylistId = null;
 let ytPlayer = null;
 let isPlayerReady = false;
 let videoIdToPlayOnReady = null;
-let isAutoplayEnabled = false;
+let isAutoplayEnabled = true;
 let currentlyPlayingVideoId = null;
 let draggedVideoId = null;
 let dragTargetElement = null;
-let currentTheme = 'light';
+let draggedPlaylistId = null;
+let playlistDragTargetElement = null;
+let currentTheme = 'dark';
 let isResizing = false;
-// Touch drag state
 let isTouchDragging = false;
 let touchDraggedElement = null;
-// Pagination State
 const videosPerPage = 20;
 let currentPage = 1;
 let isAudioOnlyMode = false;
 
-// --- Icons ---
+// Icons
 const ICONS = {
     add: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>`,
     loading: `<span class="spinner"></span>`,
@@ -66,7 +67,7 @@ const ICONS = {
     info: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>`,
 };
 
-// --- Initialization ---
+// Initialization
 function init() {
     loadTheme();
     loadPlaylists();
@@ -75,11 +76,10 @@ function init() {
     loadSidebarWidth();
     renderPlaylists();
 
-    // YouTube API script is loaded externally. onYouTubeIframeAPIReady will be called by the API.
-
     const lastSelectedId = localStorage.getItem('lastSelectedPlaylistId');
-    if (lastSelectedId && playlists.some(p => p.id === parseInt(lastSelectedId))) {
-        selectPlaylist(parseInt(lastSelectedId));
+    const lastSelectedPlaylist = playlists.find(p => p.id === parseInt(lastSelectedId));
+    if (lastSelectedPlaylist) {
+        selectPlaylist(lastSelectedPlaylist.id);
     } else if (playlists.length > 0) {
         selectPlaylist(playlists[0].id);
     } else {
@@ -88,22 +88,29 @@ function init() {
 
     setupEventListeners();
     updateThemeIcon();
+
+    if (isIOS() && isInStandaloneMode()) {
+        document.documentElement.classList.add('ios-pwa');
+    }
 }
 
-// --- Sidebar Resizing ---
+// Sidebar Resizing
 function loadSidebarWidth() {
     const savedWidth = localStorage.getItem('sidebarWidth');
     if (savedWidth) {
         sidebarEl.style.width = savedWidth + 'px';
     }
 }
-function saveSidebarWidth(width) { localStorage.setItem('sidebarWidth', width); }
+
+function saveSidebarWidth(width) {
+    localStorage.setItem('sidebarWidth', width);
+}
 
 function initSidebarResize(e) {
     isResizing = true;
     sidebarResizerEl.classList.add('resizing');
     document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', handleSidebarResize);
+    document.addEventListener('mousemove', handleSidebarResize, { passive: false });
     document.addEventListener('mouseup', stopSidebarResize);
     e.preventDefault();
 }
@@ -111,11 +118,11 @@ function initSidebarResize(e) {
 function handleSidebarResize(e) {
     if (!isResizing) return;
     const containerRect = document.querySelector('.container').getBoundingClientRect();
-    const newWidth = Math.max(
-        parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-min-width')),
-        Math.min(e.clientX - containerRect.left,
-            parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-max-width')))
-    );
+    const rootStyles = getComputedStyle(document.documentElement);
+    const minWidth = parseInt(rootStyles.getPropertyValue('--sidebar-min-width'));
+    const maxWidth = parseInt(rootStyles.getPropertyValue('--sidebar-max-width'));
+
+    const newWidth = Math.max(minWidth, Math.min(e.clientX - containerRect.left, maxWidth));
     sidebarEl.style.width = newWidth + 'px';
 }
 
@@ -128,7 +135,7 @@ function stopSidebarResize() {
     saveSidebarWidth(sidebarEl.getBoundingClientRect().width);
 }
 
-// --- Event Listeners ---
+// Event Listeners
 function setupEventListeners() {
     createPlaylistBtn.addEventListener('click', handleCreatePlaylist);
     playlistNameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleCreatePlaylist(); });
@@ -145,40 +152,15 @@ function setupEventListeners() {
     importFileEl.addEventListener('change', handleImportPlaylists);
     exportBtn.addEventListener('click', handleExportPlaylists);
     audioOnlyToggle.addEventListener('change', handleAudioOnlyToggle);
-    document.getElementById('audioOnlyControlGroup').querySelector('.switch').addEventListener('click', handleVisualAudioOnlySwitchClick);
-
+    audioOnlySwitchDiv.addEventListener('click', handleVisualAudioOnlySwitchClick);
     sidebarResizerEl.addEventListener('mousedown', initSidebarResize);
+    closePlayerBtn.addEventListener('click', handleClosePlayer);
 
-    playlistListEl.addEventListener('click', (event) => {
-        const playlistItem = event.target.closest('.playlist-item');
-        if (!playlistItem) return;
-        const playlistId = parseInt(playlistItem.dataset.id);
-        const isControlClick = event.target.closest('.rename-btn') || event.target.closest('.delete-btn') || event.target.closest('.playlist-drag-handle');
-
-        if (!isControlClick) {
-            selectPlaylist(playlistId);
-        } else if (event.target.closest('.rename-btn')) {
-            event.stopPropagation(); handleRenamePlaylist(playlistId);
-        } else if (event.target.closest('.delete-btn')) {
-            event.stopPropagation(); handleDeletePlaylist(playlistId);
-        }
-    });
-
-    videoGridEl.addEventListener('click', (event) => {
-        const videoCard = event.target.closest('.video-card');
-        if (!videoCard) return;
-        const videoId = videoCard.dataset.videoId;
-
-        if (event.target.closest('.delete-video-btn')) {
-            event.stopPropagation(); handleDeleteVideo(videoId);
-        } else if (!event.target.closest('.drag-handle')) {
-            playVideo(videoId);
-        }
-    });
+    playlistListEl.addEventListener('click', handlePlaylistClick, { passive: false });
+    videoGridEl.addEventListener('click', handleVideoGridClick);
 
     setupDragAndDropListeners();
     setupPlaylistDragAndDropListeners();
-    closePlayerBtn.addEventListener('click', handleClosePlayer);
 
     prevPageBtn.addEventListener('click', () => {
         if (currentPage > 1) {
@@ -196,20 +178,52 @@ function setupEventListeners() {
         }
     });
 
-    videoGridEl.addEventListener('touchstart', handleTouchStart, { passive: false }); // passive: false for preventDefault
-    videoGridEl.addEventListener('touchmove', handleTouchMove, { passive: false }); // passive: false for preventDefault
-    videoGridEl.addEventListener('touchend', handleTouchEnd);
-    videoGridEl.addEventListener('touchcancel', handleTouchEnd);
-
+    setupTouchDragAndDropListeners();
     window.addEventListener('resize', debounce(handleWindowResize, 100));
 }
 
-function handleWindowResize() {
-    // Re-render playlists to apply/remove 'draggable' attribute based on window size
-    renderPlaylists();
+// Event Delegation Handlers
+function handlePlaylistClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const playlistItem = event.target.closest('.playlist-item');
+    if (!playlistItem) return;
+    const playlistId = parseInt(playlistItem.dataset.id);
+
+    if (event.target.closest('.rename-btn')) {
+        handleRenamePlaylist(playlistId);
+    } else if (event.target.closest('.delete-btn')) {
+        handleDeletePlaylist(playlistId);
+    } else if (!event.target.closest('.playlist-drag-handle') && !event.target.closest('.controls')) {
+        // Remove .active from all playlist items (extra safety for mobile)
+        document.querySelectorAll('.playlist-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        playlistItem.classList.add('active');
+
+        // Only scroll into view on desktop
+        if (window.innerWidth >= 768) {
+            playlistItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        selectPlaylist(playlistId);
+    }
 }
 
-// --- Drag and Drop (Videos) ---
+function handleVideoGridClick(event) {
+    const videoCard = event.target.closest('.video-card');
+    if (!videoCard) return;
+    const videoId = videoCard.dataset.videoId;
+
+    if (event.target.closest('.delete-video-btn')) {
+        event.stopPropagation();
+        handleDeleteVideo(videoId);
+    } else if (!event.target.closest('.drag-handle')) {
+        playVideo(videoId);
+    }
+}
+
+// Drag and Drop (Videos) - Delegation
 function setupDragAndDropListeners() {
     videoGridEl.addEventListener('dragstart', handleDragStart);
     videoGridEl.addEventListener('dragend', handleDragEnd);
@@ -224,15 +238,15 @@ function handleDragStart(event) {
         draggedVideoId = videoCard.dataset.videoId;
         event.dataTransfer.effectAllowed = 'move';
         setTimeout(() => videoCard.classList.add('dragging'), 0);
+    } else {
+        event.preventDefault();
     }
 }
 
 function handleDragEnd() {
     const draggingElement = videoGridEl.querySelector('.video-card.dragging');
-    if (draggingElement) {
-        draggingElement.classList.remove('dragging');
-    }
-    clearDragOverStyles();
+    if (draggingElement) draggingElement.classList.remove('dragging');
+    clearDragOverStyles(); // Explicitly clear styles
     draggedVideoId = null;
     dragTargetElement = null;
 }
@@ -285,10 +299,7 @@ function clearDragOverStyles() {
     });
 }
 
-// --- Drag and Drop (Playlists) ---
-let draggedPlaylistId = null;
-let playlistDragTargetElement = null;
-
+// Drag and Drop (Playlists) - Delegation
 function setupPlaylistDragAndDropListeners() {
     playlistListEl.addEventListener('dragstart', handlePlaylistDragStart);
     playlistListEl.addEventListener('dragend', handlePlaylistDragEnd);
@@ -304,7 +315,7 @@ function handlePlaylistDragStart(event) {
         event.dataTransfer.effectAllowed = 'move';
         setTimeout(() => playlistItem.classList.add('dragging'), 0);
     } else {
-        event.preventDefault(); // Prevent drag if not draggable (e.g., on mobile)
+        event.preventDefault();
     }
 }
 
@@ -385,34 +396,52 @@ function handleReorderPlaylist(playlistIdToMove, targetPlaylistId, insertBeforeT
             const insertIndex = insertBeforeTarget ? targetIndex : targetIndex + 1;
             playlists.splice(insertIndex, 0, movedPlaylist);
         } else {
-            playlists.push(movedPlaylist); // Fallback
+            playlists.push(movedPlaylist);
         }
     }
     savePlaylists();
     renderPlaylists();
 }
 
-// --- Theme Management ---
+// Theme Management
 function loadTheme() {
-    const savedTheme = localStorage.getItem('uiTheme') || 'light';
+    const savedTheme = localStorage.getItem('uiTheme') || 'dark';
     applyTheme(savedTheme);
 }
+
 function applyTheme(themeName) {
     currentTheme = themeName;
     htmlEl.dataset.theme = themeName;
     updateThemeIcon();
     localStorage.setItem('uiTheme', themeName);
 }
-function toggleTheme() { applyTheme(currentTheme === 'light' ? 'dark' : 'light'); }
+
+function toggleTheme() {
+    applyTheme(currentTheme === 'light' ? 'dark' : 'light');
+}
+
 function updateThemeIcon() {
     themeToggleBtn.innerHTML = currentTheme === 'dark' ? ICONS.sun : ICONS.moon;
     themeToggleBtn.title = currentTheme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme';
 }
 
-// --- YouTube Player API ---
-// This function MUST be global for the API to find it
+// YouTube Player API
+function destroyPlayer() {
+    if (ytPlayer) {
+        try {
+            ytPlayer.destroy();
+        } catch (error) {
+            console.error("Error destroying player:", error);
+        }
+        ytPlayer = null;
+    }
+    isPlayerReady = false;
+    videoIdToPlayOnReady = null;
+}
+
 function onYouTubeIframeAPIReady() {
     if (document.getElementById('player')) {
+        destroyPlayer(); // Ensure no duplicate player
         ytPlayer = new YT.Player('player', {
             height: '100%',
             width: '100%',
@@ -453,7 +482,12 @@ function onPlayerStateChange(event) {
     }
     if (event.data === YT.PlayerState.ENDED) {
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = "none";
-        playNextVideo();
+        if (isAutoplayEnabled) {
+            playNextVideo();
+        } else {
+            stopVideo();
+            playerWrapperEl.classList.add('hidden');
+        }
     }
 }
 
@@ -478,6 +512,9 @@ function onPlayerError(event) {
     if (isAutoplayEnabled && shouldSkip) {
         showToast(`${errorMsg} Skipping to next video.`, 'info', 4000);
         setTimeout(playNextVideo, 500);
+    } else {
+        stopVideo();
+        playerWrapperEl.classList.add('hidden');
     }
 }
 
@@ -493,20 +530,21 @@ function playNextVideo() {
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
     if (!currentPlaylist || currentPlaylist.videos.length < 1) return;
 
-    if (!currentlyPlayingVideoId && currentPlaylist.videos.length > 0) {
-        playVideo(currentPlaylist.videos[0].id); // Fallback: play first video
-        return;
-    }
-    if (!currentlyPlayingVideoId || currentPlaylist.videos.length < 2) return;
-
     const currentIndex = currentPlaylist.videos.findIndex(v => v.id === currentlyPlayingVideoId);
-    if (currentIndex === -1) {
-        if (currentPlaylist.videos.length > 0) playVideo(currentPlaylist.videos[0].id);
+
+    if (currentIndex === -1 || currentPlaylist.videos.length < 2) {
+        if (currentIndex === -1 && currentPlaylist.videos.length > 0) {
+            playVideo(currentPlaylist.videos[0].id);
+        } else {
+            stopVideo();
+            playerWrapperEl.classList.add('hidden');
+        }
         return;
     }
 
     const nextIndex = (currentIndex + 1) % currentPlaylist.videos.length;
     const nextVideo = currentPlaylist.videos[nextIndex];
+
     if (nextVideo) {
         playVideo(nextVideo.id);
     } else {
@@ -516,23 +554,60 @@ function playNextVideo() {
     }
 }
 
-// --- Local Storage & State Persistence ---
-function savePlaylists() { localStorage.setItem('playlists', JSON.stringify(playlists)); }
-function loadPlaylists() {
-    playlists = JSON.parse(localStorage.getItem('playlists')) || [];
-    playlists.forEach(p => { if (!p.videos) p.videos = []; });
-}
-function saveLastSelectedPlaylist(id) { localStorage.setItem('lastSelectedPlaylistId', id ? String(id) : ''); }
-function saveAutoplaySetting() { localStorage.setItem('autoplayEnabled', isAutoplayEnabled); }
-function loadAutoplaySetting() {
-    isAutoplayEnabled = localStorage.getItem('autoplayEnabled') === 'true';
-    autoplayToggle.checked = isAutoplayEnabled;
+// Local Storage & State Persistence
+function savePlaylists() {
+    try {
+        localStorage.setItem('playlists', JSON.stringify(playlists));
+    } catch (e) {
+        console.error("Error saving playlists to localStorage:", e);
+        showToast("Failed to save playlists. Storage might be full.", "error");
+    }
 }
 
-// --- Playlist Management ---
+function loadPlaylists() {
+    try {
+        const savedPlaylists = localStorage.getItem('playlists');
+        playlists = JSON.parse(savedPlaylists) || [];
+        playlists.forEach(p => { if (!p.videos) p.videos = []; });
+    } catch (e) {
+        console.error("Error loading playlists from localStorage:", e);
+        showToast("Failed to load playlists. Data might be corrupted.", "error");
+        playlists = [];
+    }
+}
+
+function saveLastSelectedPlaylist(id) {
+    try {
+        localStorage.setItem('lastSelectedPlaylistId', id ? String(id) : '');
+    } catch (e) {
+        console.error("Error saving last selected playlist ID:", e);
+    }
+}
+
+function saveAutoplaySetting() {
+    try {
+        localStorage.setItem('autoplayEnabled', isAutoplayEnabled);
+    } catch (e) {
+        console.error("Error saving autoplay setting:", e);
+    }
+}
+
+function loadAutoplaySetting() {
+    try {
+        isAutoplayEnabled = localStorage.getItem('autoplayEnabled') !== 'false'; // Defaults to true unless explicitly set to false
+        autoplayToggle.checked = isAutoplayEnabled;
+    } catch (e) {
+        console.error("Error loading autoplay setting:", e);
+        isAutoplayEnabled = true;
+        autoplayToggle.checked = true;
+    }
+}
+
+// Playlist Management
 function handleCreatePlaylist() {
     const name = playlistNameInput.value.trim();
     if (!name) { showToast('Please enter a playlist name.', 'error'); playlistNameInput.focus(); return; }
+
     const newPlaylist = { id: Date.now(), name: name, videos: [] };
     playlists.unshift(newPlaylist);
     savePlaylists();
@@ -541,40 +616,56 @@ function handleCreatePlaylist() {
     selectPlaylist(newPlaylist.id);
     playlistNameInput.value = '';
     showToast(`Playlist "${escapeHTML(name)}" created.`, 'success');
+
+    // Apply animation to the newly created playlist
+    const newPlaylistItem = playlistListEl.querySelector(`.playlist-item[data-id="${newPlaylist.id}"]`);
+    if (newPlaylistItem) {
+        newPlaylistItem.classList.add('added');
+        setTimeout(() => newPlaylistItem.classList.remove('added'), 300);
+    }
 }
 
 function handleDeletePlaylist(id) {
+    const playlist = playlists.find(p => p.id === id);
+    if (!playlist) return;
+
+    // Confirm deletion with the user
+    const confirmDelete = confirm(`Are you sure you want to delete the playlist "${escapeHTML(playlist.name)}"?`);
+    if (!confirmDelete) return;
+
     const playlistIndex = playlists.findIndex(p => p.id === id);
     if (playlistIndex === -1) return;
-    const playlistName = playlists[playlistIndex].name;
 
-    if (!confirm(`Are you sure you want to delete "${escapeHTML(playlistName)}"? This cannot be undone.`)) return;
+    // Remove the playlist from the array
+    const newPlaylists = [...playlists.slice(0, playlistIndex), ...playlists.slice(playlistIndex + 1)];
+    playlists = newPlaylists;
+    savePlaylists();
 
-    playlists.splice(playlistIndex, 1);
+    // If the deleted playlist was the currently selected one, reset the selection
     if (currentPlaylistId === id) {
         currentPlaylistId = null;
         saveLastSelectedPlaylist(null);
-        if (playlists.length > 0) {
-            const nextIndex = Math.min(playlistIndex, playlists.length - 1);
-            selectPlaylist(playlists[nextIndex >= 0 ? nextIndex : 0]?.id);
-        } else {
-            updateUIForNoSelection();
-        }
+        updateUIForNoSelection();
     }
-    savePlaylists();
+
+    // Re-render the playlists and videos
     renderPlaylists();
-    showToast(`Playlist "${escapeHTML(playlistName)}" deleted.`, 'info');
+    renderVideos();
+
+    showToast(`Playlist "${escapeHTML(playlist.name)}" deleted.`, 'info');
 }
 
 function handleRenamePlaylist(id) {
     const playlist = playlists.find(p => p.id === id);
     if (!playlist) return;
+
     const newName = prompt('Enter new name for playlist:', playlist.name);
     if (newName && newName.trim() && newName.trim() !== playlist.name) {
         const oldName = playlist.name;
         playlist.name = newName.trim();
         savePlaylists();
         renderPlaylists();
+
         if (currentPlaylistId === id) {
             currentPlaylistTitleEl.textContent = escapeHTML(playlist.name);
         }
@@ -583,59 +674,83 @@ function handleRenamePlaylist(id) {
 }
 
 function selectPlaylist(id) {
-    const selectedPlaylist = playlists.find(p => p.id === id);
-    if (!selectedPlaylist) {
-        console.error("Playlist not found:", id);
-        updateUIForNoSelection();
-        return;
+    // Clear active state from all playlist items
+    document.querySelectorAll('.playlist-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    // Apply active state to the selected playlist
+    const selectedPlaylist = document.querySelector(`.playlist-item[data-id="${id}"]`);
+    if (selectedPlaylist) {
+        selectedPlaylist.classList.add('active');
     }
 
+    // Update the current playlist ID and save it
     currentPlaylistId = id;
-    currentPage = 1;
     saveLastSelectedPlaylist(id);
-    if (playlistSearchInput.value !== '') playlistSearchInput.value = '';
 
-    currentPlaylistTitleEl.textContent = escapeHTML(selectedPlaylist.name);
+    // Reset search input if it's not empty
+    if (playlistSearchInput.value !== '') {
+        playlistSearchInput.value = '';
+    }
+
+    // Update the UI
+    const currentPlaylist = playlists.find(p => p.id === id);
+    if (currentPlaylist) {
+        currentPlaylistTitleEl.textContent = escapeHTML(currentPlaylist.name);
+    }
+
+    // Show/hide relevant UI elements
     videoFormEl.classList.remove('hidden');
     playlistActionsEl.classList.remove('hidden');
     addVideoBtn.disabled = videoUrlInput.value.trim() === '';
     videoPlaceholderEl.classList.add('hidden');
+
+    // Reset player and video highlights
     playerWrapperEl.classList.add('hidden');
     stopVideo();
     updatePlayingVideoHighlight(null);
 
+    // Re-render playlists and videos
     renderPlaylists();
     renderVideos();
 }
 
 function handleClearPlaylist() {
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
-    if (!currentPlaylist || currentPlaylist.videos.length === 0) {
+    if (!currentPlaylist) return;
+    if (currentPlaylist.videos.length === 0) {
         showToast('Playlist is already empty.', 'info');
         return;
     }
+
     if (!confirm(`Remove all videos from "${escapeHTML(currentPlaylist.name)}"?`)) return;
 
     currentPlaylist.videos = [];
     savePlaylists();
+
     stopVideo();
     playerWrapperEl.classList.add('hidden');
+    handleClosePlayer();
+
     renderVideos();
     renderPlaylists();
     showToast(`All videos removed from "${escapeHTML(currentPlaylist.name)}".`, 'info');
 }
 
-function handlePlaylistSearch() { renderPlaylists(); }
+function handlePlaylistSearch() {
+    renderPlaylists();
+}
 
 function handleShufflePlaylist() {
     if (!currentPlaylistId) { showToast('Select a playlist to shuffle.', 'info'); return; }
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
-    if (!currentPlaylist || currentPlaylist.videos.length < 2) {
+    if (!currentPlaylist) return;
+    if (currentPlaylist.videos.length < 2) {
         showToast('Playlist needs at least two videos to shuffle.', 'info');
         return;
     }
 
-    // Fisher-Yates (Knuth) Shuffle
     for (let i = currentPlaylist.videos.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [currentPlaylist.videos[i], currentPlaylist.videos[j]] = [currentPlaylist.videos[j], currentPlaylist.videos[i]];
@@ -647,7 +762,7 @@ function handleShufflePlaylist() {
     showToast(`Playlist "${escapeHTML(currentPlaylist.name)}" shuffled!`, 'success');
 }
 
-// --- Video Management ---
+// Video Management
 function updatePlayingVideoHighlight(videoId) {
     videoGridEl.querySelectorAll('.video-card.playing').forEach(card => card.classList.remove('playing'));
     if (videoId) {
@@ -660,21 +775,29 @@ async function handleAddVideo() {
     const url = videoUrlInput.value.trim();
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
     if (!url) { showToast('Please enter a YouTube video URL.', 'error'); return; }
-    if (!currentPlaylist) return;
+    if (!currentPlaylist) {
+        showToast('Please select a playlist first.', 'error');
+        return;
+    }
 
     const videoId = extractVideoId(url);
     if (!videoId) { showToast('Invalid YouTube URL.', 'error'); videoUrlInput.focus(); return; }
-    if (currentPlaylist.videos.some(v => v.id === videoId)) { showToast(`Video already in "${escapeHTML(currentPlaylist.name)}".`, 'info'); return; }
+
+    if (currentPlaylist.videos.some(v => v.id === videoId)) {
+        showToast(`Video already in "${escapeHTML(currentPlaylist.name)}".`, 'info');
+        return;
+    }
 
     addVideoBtn.disabled = true;
     addVideoBtn.innerHTML = ICONS.loading + ' Adding...';
     videoUrlInput.disabled = true;
 
     try {
-        const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
+        const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+
         if (!response.ok) {
             let errorMsg = `Failed to fetch video info (HTTP ${response.status}).`;
-            try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch (_) { /* NOP */ }
+            try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch (_) { }
             throw new Error(errorMsg);
         }
         const data = await response.json();
@@ -686,21 +809,42 @@ async function handleAddVideo() {
             thumbnail: data.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
             url: `https://youtu.be/${videoId}`
         };
+
         currentPlaylist.videos.push(video);
-        currentPage = Math.ceil(currentPlaylist.videos.length / videosPerPage);
         savePlaylists();
-        renderVideos();
-        renderPlaylists();
+
+        // Append the new video card directly to the grid
+        const div = document.createElement('div');
+        div.innerHTML = `
+            <div class="video-card ${video.id === currentlyPlayingVideoId ? 'playing' : ''}" data-video-id="${video.id}" draggable="true">
+                <div class="thumbnail-wrapper">
+                    <img src="${escapeHTML(video.thumbnail)}" class="thumbnail" alt="" loading="lazy">
+                </div>
+                <div class="video-info">
+                    <h4>${escapeHTML(video.title)}</h4>
+                    <div class="video-controls">
+                        <span class="drag-handle" title="Drag to reorder">${ICONS.drag}</span>
+                        <button class="icon-button delete-video-btn" title="Remove from playlist">${ICONS.delete}</button>
+                    </div>
+                </div>
+            </div>`;
+        const videoCard = div.firstElementChild;
+        videoGridEl.appendChild(videoCard);
+
+        // Apply animation to the newly added video
+        videoCard.classList.add('added');
+        setTimeout(() => videoCard.classList.remove('added'), 300);
+
         videoUrlInput.value = '';
         showToast(`Video "${escapeHTML(video.title)}" added.`, 'success');
     } catch (error) {
         console.error('Add video error:', error);
         showToast(`Error adding video: ${error.message}`, 'error');
     } finally {
-        addVideoBtn.disabled = videoUrlInput.value.trim() === ''; // Re-evaluate based on input
+        addVideoBtn.disabled = videoUrlInput.value.trim() === '';
         addVideoBtn.innerHTML = ICONS.add + ' Add Video';
         videoUrlInput.disabled = false;
-        videoUrlInput.focus();
+        addVideoBtn.focus();
     }
 }
 
@@ -712,19 +856,22 @@ function handleDeleteVideo(videoId) {
     if (videoIndex === -1) return;
 
     const videoTitle = currentPlaylist.videos[videoIndex].title;
+
     if (videoId === currentlyPlayingVideoId) {
         stopVideo();
         playerWrapperEl.classList.add('hidden');
-        handleClosePlayer(); // Also clears media session
+        handleClosePlayer();
     }
 
     currentPlaylist.videos.splice(videoIndex, 1);
-    const totalPages = Math.ceil(currentPlaylist.videos.length / videosPerPage);
-    if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
-
     savePlaylists();
-    renderVideos();
-    renderPlaylists();
+
+    // Remove the video card directly from the grid
+    const videoCard = videoGridEl.querySelector(`.video-card[data-video-id="${videoId}"]`);
+    if (videoCard) {
+        videoCard.remove();
+    }
+
     showToast(`Removed "${escapeHTML(videoTitle)}".`, 'info');
 
     if (videoId === currentlyPlayingVideoId) currentlyPlayingVideoId = null;
@@ -738,21 +885,24 @@ function handleReorderVideo(videoIdToMove, targetVideoId) {
     if (videoToMoveIndex === -1) return;
 
     const [movedVideo] = currentPlaylist.videos.splice(videoToMoveIndex, 1);
-    if (targetVideoId === null) {
-        currentPlaylist.videos.push(movedVideo);
+
+    const targetIndex = currentPlaylist.videos.findIndex(v => v.id === targetVideoId);
+
+    if (targetIndex !== -1) {
+        currentPlaylist.videos.splice(targetIndex, 0, movedVideo);
     } else {
-        const targetIndex = currentPlaylist.videos.findIndex(v => v.id === targetVideoId);
-        if (targetIndex !== -1) {
-            currentPlaylist.videos.splice(targetIndex, 0, movedVideo);
-        } else {
-            currentPlaylist.videos.push(movedVideo); // Fallback
-        }
+        currentPlaylist.videos.push(movedVideo);
     }
+
     savePlaylists();
     renderVideos();
 }
 
 function playVideo(videoId) {
+    if (currentlyPlayingVideoId === videoId && ytPlayer && isPlayerReady) {
+        return; // Avoid redundant calls
+    }
+
     playerWrapperEl.classList.remove('hidden');
     currentlyPlayingVideoId = videoId;
     updatePlayingVideoHighlight(videoId);
@@ -760,21 +910,23 @@ function playVideo(videoId) {
     if (ytPlayer && isPlayerReady) {
         try {
             ytPlayer.loadVideoById(videoId);
-            ytPlayer.playVideo(); // Ensure playback starts
             setTimeout(() => {
-                if (playerWrapperEl.offsetParent !== null) { // Check visibility
+                if (playerWrapperEl.offsetParent !== null) {
                     playerWrapperEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             }, 100);
         } catch (error) {
-            console.error("Error calling loadVideoById or playVideo:", error);
-            showToast("Failed to load or play video.", "error");
+            console.error("Error calling loadVideoById:", error);
+            showToast("Failed to load video.", "error");
             stopVideo();
             playerWrapperEl.classList.add('hidden');
             videoIdToPlayOnReady = null;
         }
     } else {
-        videoIdToPlayOnReady = videoId; // Queue video if player not ready
+        videoIdToPlayOnReady = videoId;
+        if (!ytPlayer) {
+            onYouTubeIframeAPIReady(); // Reinitialize if player is destroyed
+        }
     }
 
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
@@ -788,7 +940,9 @@ function playVideo(videoId) {
 }
 
 function stopVideo() {
-    if (ytPlayer && typeof ytPlayer.stopVideo === 'function') ytPlayer.stopVideo();
+    if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
+        ytPlayer.stopVideo();
+    }
     currentlyPlayingVideoId = null;
     updatePlayingVideoHighlight(null);
     if ('mediaSession' in navigator) {
@@ -798,46 +952,45 @@ function stopVideo() {
 }
 
 function extractVideoId(url) {
-    const regex = /(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([^"&?\/\s]{11})/;
     const match = url.match(regex);
     return match ? match[1] : null;
 }
 
-// --- Rendering ---
+// Rendering
 function renderPlaylists() {
     const searchTerm = playlistSearchInput.value.toLowerCase();
     const filteredPlaylists = playlists.filter(p => p.name.toLowerCase().includes(searchTerm));
+    const fragment = document.createDocumentFragment();
 
-    playlistListEl.innerHTML = ''; // Clear before re-render
     if (filteredPlaylists.length === 0) {
         noPlaylistsMessageEl.classList.remove('hidden');
         noPlaylistsMessageEl.textContent = searchTerm ? 'No playlists match your search.' : 'No playlists created yet.';
     } else {
         noPlaylistsMessageEl.classList.add('hidden');
-        const fragment = document.createDocumentFragment();
-        const isDesktop = window.innerWidth >= 768; // Threshold for draggable playlists
-
         filteredPlaylists.forEach(playlist => {
             const li = document.createElement('li');
             li.className = `playlist-item ${playlist.id === currentPlaylistId ? 'active' : ''}`;
             li.dataset.id = playlist.id;
-            if (isDesktop) li.draggable = true;
+            li.draggable = window.innerWidth >= 768;
             li.innerHTML = `
                 <span class="playlist-name">${escapeHTML(playlist.name)}</span>
                 <span class="playlist-count">${playlist.videos.length}</span>
                 <div class="controls">
-                    <button class="icon-button rename-btn" title="Rename Playlist">${ICONS.rename}<span class="visually-hidden">Rename</span></button>
-                    <button class="icon-button delete-btn" title="Delete Playlist">${ICONS.delete}<span class="visually-hidden">Delete</span></button>
+                    <button class="icon-button rename-btn" title="Rename Playlist">${ICONS.rename}</button>
+                    <button class="icon-button delete-btn" title="Delete Playlist">${ICONS.delete}</button>
                 </div>`;
             fragment.appendChild(li);
         });
-        playlistListEl.appendChild(fragment);
     }
+
+    playlistListEl.innerHTML = '';
+    playlistListEl.appendChild(fragment);
 }
 
 function renderVideos() {
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
-    videoGridEl.innerHTML = ''; // Clear before re-render
+    videoGridEl.innerHTML = '';
 
     if (!currentPlaylist || currentPlaylist.videos.length === 0) {
         paginationControlsEl.classList.add('hidden');
@@ -850,17 +1003,19 @@ function renderVideos() {
     const totalVideos = currentPlaylist.videos.length;
     const totalPages = Math.ceil(totalVideos / videosPerPage);
     if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
+    else if (currentPage < 1 && totalPages > 0) currentPage = 1;
+    else if (totalPages === 0) currentPage = 1;
 
     const startIndex = (currentPage - 1) * videosPerPage;
-    const videosToRender = currentPlaylist.videos.slice(startIndex, startIndex + videosPerPage);
+    const endIndex = startIndex + videosPerPage;
+    const videosToRender = currentPlaylist.videos.slice(startIndex, endIndex);
+
     const fragment = document.createDocumentFragment();
 
     videosToRender.forEach(video => {
         const div = document.createElement('div');
-        // Outer div structure matches what was there, assumed for styling.
-        // The inner .video-card is what gets data-video-id and draggable.
         div.innerHTML = `
-            <div class="video-card" data-video-id="${video.id}" draggable="true">
+            <div class="video-card ${video.id === currentlyPlayingVideoId ? 'playing' : ''}" data-video-id="${video.id}" draggable="true">
                 <div class="thumbnail-wrapper">
                     <img data-src="${escapeHTML(video.thumbnail)}" class="thumbnail" alt="" loading="lazy">
                 </div>
@@ -872,41 +1027,48 @@ function renderVideos() {
                     </div>
                 </div>
             </div>`;
-        fragment.appendChild(div.firstElementChild); // Append the actual .video-card
+        fragment.appendChild(div.firstElementChild);
     });
+
     videoGridEl.appendChild(fragment);
     renderPaginationControls(totalVideos, totalPages);
 
-    // Lazy-load thumbnails
+    // Lazy load images
     const lazyImages = videoGridEl.querySelectorAll('img[data-src]');
-    const lazyImageObserver = new IntersectionObserver((entries, observer) => {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                const img = entry.target;
-                img.src = img.dataset.src;
-                img.removeAttribute('data-src');
-                observer.unobserve(img);
-            }
+    if ('IntersectionObserver' in window) {
+        const lazyImageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    img.src = img.dataset.src;
+                    img.removeAttribute('data-src');
+                    observer.unobserve(img);
+                }
+            });
         });
-    });
-    lazyImages.forEach(img => lazyImageObserver.observe(img));
+        lazyImages.forEach(img => lazyImageObserver.observe(img));
+    } else {
+        lazyImages.forEach(img => {
+            img.src = img.dataset.src;
+            img.removeAttribute('data-src');
+        });
+    }
 }
 
-// --- UI Updates ---
+// UI Updates
 function updateUIForNoSelection() {
     currentPlaylistId = null;
     saveLastSelectedPlaylist(null);
     currentPlaylistTitleEl.textContent = 'No playlist selected';
     videoFormEl.classList.add('hidden');
     playlistActionsEl.classList.add('hidden');
-    addVideoBtn.disabled = true;
     videoGridEl.innerHTML = '';
     playerWrapperEl.classList.add('hidden');
     stopVideo();
     videoPlaceholderEl.textContent = 'Create or select a playlist to get started.';
     videoPlaceholderEl.classList.remove('hidden');
     paginationControlsEl.classList.add('hidden');
-    renderPlaylists();
+    renderPlaylists(); // Ensure the playlist list is updated
 }
 
 function handleAutoplayToggle() {
@@ -915,7 +1077,7 @@ function handleAutoplayToggle() {
     showToast(`Autoplay ${isAutoplayEnabled ? 'enabled' : 'disabled'}.`, 'info');
 }
 
-// --- Import / Export ---
+// Import / Export
 function handleExportPlaylists() {
     if (playlists.length === 0) { showToast('No playlists to export.', 'info'); return; }
     try {
@@ -939,6 +1101,7 @@ function handleExportPlaylists() {
 function handleImportPlaylists(event) {
     const file = event.target.files[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (e) => {
         try {
@@ -954,24 +1117,36 @@ function handleImportPlaylists(event) {
                 if (p && typeof p.id !== 'undefined' && typeof p.name === 'string') {
                     if (!Array.isArray(p.videos)) p.videos = [];
                     p.videos = p.videos.filter(v => v && typeof v.id === 'string' && typeof v.title === 'string');
+
                     if (!existingIds.has(p.id)) {
                         playlists.push(p);
                         existingIds.add(p.id);
                         addedCount++;
-                    } else { skippedCount++; }
-                } else { skippedCount++; }
+                    } else {
+                        skippedCount++;
+                    }
+                } else {
+                    skippedCount++;
+                }
             });
 
             savePlaylists();
             playlistSearchInput.value = '';
             renderPlaylists();
             showToast(`Imported ${addedCount} playlists. Skipped ${skippedCount}.`, 'success');
-            if (!currentPlaylistId && playlists.length > 0) selectPlaylist(playlists[0].id);
+
+            if (!currentPlaylistId && playlists.length > 0) {
+                selectPlaylist(playlists[0].id);
+            } else if (currentPlaylistId && !playlists.find(p => p.id === currentPlaylistId)) {
+                 if (playlists.length > 0) selectPlaylist(playlists[0].id);
+                 else updateUIForNoSelection();
+            }
+
         } catch (error) {
             console.error("Import error:", error);
             showToast(`Import failed: ${error.message}`, 'error');
         } finally {
-            importFileEl.value = ''; // Reset file input
+            importFileEl.value = '';
         }
     };
     reader.onerror = () => { showToast('Error reading file.', 'error'); importFileEl.value = ''; };
@@ -979,47 +1154,69 @@ function handleImportPlaylists(event) {
 }
 
 function handleVisualSwitchClick(event) {
-    if (event.target !== autoplayToggle) autoplayToggle.click();
+    if (event.target !== autoplayToggle) {
+        autoplayToggle.click();
+    }
 }
 
-// --- Audio Only Mode ---
+// Audio Only Mode
 function loadAudioOnlySetting() {
-    isAudioOnlyMode = localStorage.getItem('audioOnlyEnabled') === 'true';
-    audioOnlyToggle.checked = isAudioOnlyMode;
-    applyAudioOnlyClass();
+    try {
+        isAudioOnlyMode = localStorage.getItem('audioOnlyEnabled') === 'true';
+        audioOnlyToggle.checked = isAudioOnlyMode;
+        applyAudioOnlyClass();
+    } catch (e) {
+        console.error("Error loading audio only setting:", e);
+        isAudioOnlyMode = false;
+        audioOnlyToggle.checked = false;
+        applyAudioOnlyClass();
+    }
 }
-function saveAudioOnlySetting() { localStorage.setItem('audioOnlyEnabled', isAudioOnlyMode); }
+
+function saveAudioOnlySetting() {
+    try {
+        localStorage.setItem('audioOnlyEnabled', isAudioOnlyMode);
+    } catch (e) {
+        console.error("Error saving audio only setting:", e);
+    }
+}
 
 function handleAudioOnlyToggle() {
     isAudioOnlyMode = audioOnlyToggle.checked;
     saveAudioOnlySetting();
     applyAudioOnlyClass();
-    if (currentlyPlayingVideoId) updateAudioOnlyDisplay();
+    if (currentlyPlayingVideoId) {
+        updateAudioOnlyDisplay();
+    }
     showToast(`Audio-only mode ${isAudioOnlyMode ? 'enabled' : 'disabled'}.`, 'info');
 }
 
-function applyAudioOnlyClass() { bodyEl.classList.toggle('audio-only-active', isAudioOnlyMode); }
+function applyAudioOnlyClass() {
+    bodyEl.classList.toggle('audio-only-active', isAudioOnlyMode);
+}
 
 function updateAudioOnlyDisplay() {
-    const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
-    if (!currentPlaylist) return;
-    const videoData = currentPlaylist.videos.find(v => v.id === currentlyPlayingVideoId);
-
     const existingInfo = playerWrapperEl.querySelector('.audio-only-info');
     if (existingInfo) existingInfo.remove();
 
-    if (videoData && isAudioOnlyMode) { // Only show if in audio-only mode and video is playing
+    const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
+    const videoData = currentPlaylist ? currentPlaylist.videos.find(v => v.id === currentlyPlayingVideoId) : null;
+
+    if (videoData && isAudioOnlyMode) {
         const audioOnlyInfo = document.createElement('div');
         audioOnlyInfo.className = 'audio-only-info';
         audioOnlyInfo.innerHTML = `<span class="audio-title">${escapeHTML(videoData.title)}</span>`;
         playerWrapperEl.appendChild(audioOnlyInfo);
     }
 }
+
 function handleVisualAudioOnlySwitchClick(event) {
-    if (event.target !== audioOnlyToggle) audioOnlyToggle.click();
+    if (event.target !== audioOnlyToggle) {
+        audioOnlyToggle.click();
+    }
 }
 
-// --- Utility Functions ---
+// Utility Functions
 function escapeHTML(str) {
     if (typeof str !== 'string') return '';
     const div = document.createElement('div');
@@ -1030,29 +1227,25 @@ function escapeHTML(str) {
 function showToast(message, type = 'info', duration = 3000) {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    let icon = ICONS.info;
-    if (type === 'success') icon = ICONS.success;
-    if (type === 'error') icon = ICONS.error;
-
-    toast.innerHTML = `${icon}<span>${escapeHTML(message)}</span>`;
+    toast.innerHTML = `${ICONS[type] || ICONS.info}<span>${escapeHTML(message)}</span>`;
     toastContainerEl.appendChild(toast);
-    setTimeout(() => toast.classList.add('show'), 10);
 
-    const timeoutId = setTimeout(() => {
+    // Remove existing toasts if too many
+    if (toastContainerEl.children.length > 3) {
+        toastContainerEl.removeChild(toastContainerEl.children[0]);
+    }
+
+    setTimeout(() => toast.classList.add('show'), 100);
+    setTimeout(() => {
         toast.classList.remove('show');
-        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        toast.addEventListener('transitionend', () => toast.remove());
     }, duration);
-    toast.addEventListener('click', () => {
-        clearTimeout(timeoutId);
-        toast.classList.remove('show');
-        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
-    });
 }
 
 function handleClosePlayer() {
     stopVideo();
     playerWrapperEl.classList.add('hidden');
-    // Media session metadata is cleared in stopVideo()
+    destroyPlayer(); // Destroy player when closed
 }
 
 function renderPaginationControls(totalVideos, totalPages) {
@@ -1069,37 +1262,49 @@ function renderPaginationControls(totalVideos, totalPages) {
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
-        const later = () => { clearTimeout(timeout); func(...args); };
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
 }
 
-// --- Media Session API ---
+// Media Session API
 function updateMediaSessionMetadata(video) {
     if (!('mediaSession' in navigator)) return;
+
     if (!video) {
         navigator.mediaSession.metadata = null;
         navigator.mediaSession.playbackState = 'none';
         return;
     }
+
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
+
     navigator.mediaSession.metadata = new MediaMetadata({
         title: video.title,
-        artist: 'YouTube', // Or video.author if available from API
+        artist: 'YouTube',
         album: currentPlaylist ? currentPlaylist.name : 'Playlist',
         artwork: [
             { src: video.thumbnail.replace('mqdefault', 'hqdefault'), sizes: '480x360', type: 'image/jpeg' },
             { src: video.thumbnail, sizes: '320x180', type: 'image/jpeg' },
         ]
     });
+
     setupMediaSessionActionHandlers();
 }
 
 function setupMediaSessionActionHandlers() {
     if (!('mediaSession' in navigator)) return;
-    navigator.mediaSession.setActionHandler('play', () => { if (ytPlayer?.playVideo) ytPlayer.playVideo(); });
-    navigator.mediaSession.setActionHandler('pause', () => { if (ytPlayer?.pauseVideo) ytPlayer.pauseVideo(); });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+        if (ytPlayer?.playVideo) ytPlayer.playVideo();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+        if (ytPlayer?.pauseVideo) ytPlayer.pauseVideo();
+    });
     navigator.mediaSession.setActionHandler('stop', () => handleClosePlayer());
     navigator.mediaSession.setActionHandler('previoustrack', () => playPreviousVideo());
     navigator.mediaSession.setActionHandler('nexttrack', () => playNextVideo());
@@ -1108,24 +1313,36 @@ function setupMediaSessionActionHandlers() {
 function playPreviousVideo() {
     const currentPlaylist = playlists.find(p => p.id === currentPlaylistId);
     if (!currentPlaylist || currentPlaylist.videos.length < 1 || !currentlyPlayingVideoId) return;
+
     const currentIndex = currentPlaylist.videos.findIndex(v => v.id === currentlyPlayingVideoId);
     if (currentIndex === -1) return;
+
     const prevIndex = (currentIndex - 1 + currentPlaylist.videos.length) % currentPlaylist.videos.length;
-    if (currentPlaylist.videos[prevIndex]) playVideo(currentPlaylist.videos[prevIndex].id);
+
+    if (currentPlaylist.videos[prevIndex]) {
+        playVideo(currentPlaylist.videos[prevIndex].id);
+    }
 }
 
-// --- Touch Drag and Drop ---
+// Touch Drag and Drop (Videos) - Delegation
+function setupTouchDragAndDropListeners() {
+    videoGridEl.addEventListener('touchstart', handleTouchStart, { passive: false });
+    videoGridEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+    videoGridEl.addEventListener('touchend', handleTouchEnd);
+    videoGridEl.addEventListener('touchcancel', handleTouchEnd);
+}
+
 function handleTouchStart(event) {
     const targetCard = event.target.closest('.video-card[draggable="true"]');
     const dragHandle = event.target.closest('.drag-handle');
+
     if (targetCard && dragHandle) {
         isTouchDragging = true;
         draggedVideoId = targetCard.dataset.videoId;
         touchDraggedElement = targetCard;
-        // touchDragStartY is not used in current simplified move, but kept if visual translation is added
-        // touchDragStartY = event.touches[0].clientY;
         touchDraggedElement.classList.add('dragging');
         if (navigator.vibrate) navigator.vibrate(50);
+        event.preventDefault();
     } else {
         isTouchDragging = false;
         draggedVideoId = null;
@@ -1135,15 +1352,18 @@ function handleTouchStart(event) {
 
 function handleTouchMove(event) {
     if (!isTouchDragging || !touchDraggedElement) return;
-    event.preventDefault(); // Prevent scrolling
+
+    event.preventDefault();
 
     const touch = event.touches[0];
-    touchDraggedElement.style.visibility = 'hidden'; // Temporarily hide to find element underneath
+    touchDraggedElement.style.visibility = 'hidden';
     const elementUnderTouch = document.elementFromPoint(touch.clientX, touch.clientY);
     touchDraggedElement.style.visibility = '';
 
     const targetCard = elementUnderTouch ? elementUnderTouch.closest('.video-card') : null;
+
     clearDragOverStyles();
+
     if (targetCard && targetCard !== touchDraggedElement) {
         targetCard.classList.add('drag-over');
         dragTargetElement = targetCard;
@@ -1154,7 +1374,7 @@ function handleTouchMove(event) {
 
 function handleTouchEnd() {
     if (!isTouchDragging || !touchDraggedElement) {
-        clearDragOverStyles(); // Ensure styles are cleared if drag didn't fully engage
+        clearDragOverStyles();
         if (touchDraggedElement) touchDraggedElement.classList.remove('dragging');
         isTouchDragging = false; draggedVideoId = null; touchDraggedElement = null; dragTargetElement = null;
         return;
@@ -1162,11 +1382,12 @@ function handleTouchEnd() {
 
     touchDraggedElement.classList.remove('dragging');
     clearDragOverStyles();
+
     const dropTargetId = dragTargetElement ? dragTargetElement.dataset.videoId : null;
 
     if (draggedVideoId && dropTargetId && dropTargetId !== draggedVideoId) {
         handleReorderVideo(draggedVideoId, dropTargetId);
-        if (navigator.vibrate) navigator.vibrate([30, 30, 30]); // Success feedback pattern
+        if (navigator.vibrate) navigator.vibrate([30, 30, 30]);
     }
 
     isTouchDragging = false;
@@ -1175,5 +1396,18 @@ function handleTouchEnd() {
     dragTargetElement = null;
 }
 
-// --- Start App ---
-init();
+function handleWindowResize() {
+    renderPlaylists();
+    renderVideos();
+    loadSidebarWidth();
+}
+
+// Start App
+document.addEventListener('DOMContentLoaded', init);
+
+function isIOS() {
+    return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+function isInStandaloneMode() {
+    return ('standalone' in window.navigator) && window.navigator.standalone;
+}

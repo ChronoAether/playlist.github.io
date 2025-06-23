@@ -183,6 +183,9 @@
                     </svg>
                     <span class="visually-hidden">Close Player</span>
                 </button>
+                <div class="audio-only-info hidden" id="audioOnlyInfo">
+                    <span>Now Playing:</span> <span class="audio-title"></span>
+                </div>
                 <div class="player-container">
                     <div id="player"></div>
                 </div>
@@ -203,7 +206,7 @@
     <!-- Toast Notification Container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <!-- YouTube IFrame Player API -->
+    <!-- YouTube IFrame Player API (KEEP THIS SCRIPT TAG HERE WITH DEFER) -->
     <script src="https://www.youtube.com/iframe_api" defer></script>
     <script src="script.js" defer></script>
 </body>
